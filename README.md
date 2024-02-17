@@ -1,19 +1,12 @@
-# What's this
+Contents of this docker-compose
+===============================
 
-It's a simple stack of Metabase + a Postgres DB to test in Macs with M processor.
 
-## Why
+This is the old school Metabase + postgreSQL as the Application database + a postgres with the sample db and a postgres with fake data
 
-As the M chip can't work well with x86 containers, this is a project that wraps Metabase inside a Ubuntu container so it works
+- Metabase is exposed through port 3000
+- PosgreSQL is exposed through port 5432, 5435 and 5433. You can see the credentials in the docker-compose.yaml file
 
-## How
+All containers are in the same metanet1 network and you can wipe postgreSQL database by doing sudo `rm -rf /postgres_origin` on this folder (/environments/postgres)
 
-1) install docker
-2) clone this repo
-3) do "docker-compose up --build" on the root
-
-The Dockerfile on the root uses v46.4 of Metabase, so if you need to use another version, change that line to the version you need and rebuild
-
-## Credentials
-
-it's configured with a@b.com // metabot1 username and password
+The postgres DB's will be connected directly and through an SSH tunnel as well

@@ -1,0 +1,207 @@
+services:
+  # lotsa_fields:
+  #   build: lotsa/databases/.
+  #   hostname: lotsa_fields
+  #   container_name: lotsa_fields
+  #   networks:
+  #     - metanet2-postgres
+  #   environment:
+  #     host: http://nginx-border
+  #     user: a@b.com
+  #     password: metabot1
+  #     times: 1000
+  #   depends_on:
+  #     setup-postgres:
+  #       condition: service_completed_successfully
+  #   command: python fields.py
+  # lotsa_dashboards:
+  #   build: lotsa/dashboards/.
+  #   hostname: lotsa_dashboards
+  #   container_name: lotsa_dashboards
+  #   networks:
+  #     - metanet2-postgres
+  #   volumes:
+  #     - $PWD/lotsa/dashboards/dashboards.py:/app/dashboards.py
+  #   environment:
+  #     host: http://nginx-border
+  #     user: a@b.com
+  #     password: metabot1
+  #     times: 10000
+  #   depends_on:
+  #     setup-postgres:
+  #       condition: service_completed_successfully
+  #   command: python dashboards.py
+  postgres-data1:
+    image:  metabase/qa-databases:postgres-sample-15
+    container_name: postgres-data1
+    hostname: postgres-data1
+    networks: 
+      - metanet1-postgres
+    ports:
+      - 5433:5432
+    cpus: 4
+    mem_limit: 8192mb
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d sample"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+    command: -c log_statement=all -c max_connections=10000
+  metabase-postgres:
+    build:
+      dockerfile: Dockerfile
+      context: runner/.
+      args:
+        version: v1.49.0-RC1
+    container_name: metabase-postgres
+    hostname: metabase
+    volumes: 
+      - /dev/urandom:/dev/random:ro
+    ports:
+      - 3000:3000
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_CONNECTION_URI: "postgres://postgres-app-db:5432/metabase?user=metabase&password=mysecretpassword&sslmode=prefer"
+      MB_SITE_URL: http://localhost:3000/
+      MB_EMAIL_SMTP_HOST: maildev-sub
+      MB_EMAIL_SMTP_PASSWORD: password
+      MB_EMAIL_SMTP_PORT: 1025
+      MB_EMAIL_SMTP_SECURITY: none
+      MB_EMAIL_SMTP_USERNAME: admin
+      JAVA_TOOL_OPTIONS: -Xms512m -Xmx1530m
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3000M
+        reservations:
+          cpus: '2'
+          memory: 1500M
+    networks: 
+      - metanet1-postgres
+    depends_on: 
+      postgres-app-db:
+        condition: service_healthy
+      postgres-another-data:
+        condition: service_healthy
+      postgres-data1:
+        condition: service_healthy
+    healthcheck:
+      test: curl --fail -X GET -I http://localhost:3000/api/health || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 5
+  postgres-app-db:
+    image: postgres:16.1-alpine
+    container_name: postgres-app-db
+    hostname: postgres-app-db
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_USER: metabase
+      POSTGRES_DB: metabase
+      POSTGRES_PASSWORD: mysecretpassword
+    volumes:
+      - $PWD/postgres_origin:/var/lib/postgresql/data
+    networks: 
+      - metanet1-postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 1024M
+        reservations:
+          cpus: '4'
+          memory: 512M
+    command: -c log_statement=all -c 'max_connections=10000'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d metabase"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+  setup-postgres:
+    build: setup/.
+    container_name: setup-postgres
+    volumes:
+      - $PWD/setup/setup.py:/app/setup.py
+    networks:
+      - metanet1-postgres
+    depends_on:
+      metabase-postgres:
+        condition: service_healthy
+    command: python /app/setup.py
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 64M
+        reservations:
+          cpus: '0.5'
+          memory: 32M
+    environment:
+      host: http://metabase
+      port: 3000
+      dbs: 6
+  postgres-another-data:
+    image: postgres:16.1-alpine
+    container_name: postgres-another-data
+    hostname: postgres-another-data
+    environment:
+      POSTGRES_USER: metabase
+      POSTGRES_DB: sample
+      POSTGRES_PASSWORD: metasample123
+    networks: 
+      - metanet1-postgres
+    ports:
+      - 5435:5432
+    cpus: 4
+    mem_limit: 8192mb
+    volumes:
+      - $PWD/data_origin/:/docker-entrypoint-initdb.d/
+    command: -c log_statement=all
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d sample"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+  maildev-sub-postgres:
+    image: maildev/maildev:2.1.0
+    container_name: maildev-sub-postgres
+    hostname: maildev-sub
+    ports:
+    - 3003:1080
+    networks:
+    - metanet1-postgres
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 64M
+        reservations:
+          cpus: '0.5'
+          memory: 32M
+  openssh-server:
+    image: lscr.io/linuxserver/openssh-server:version-8.8_p1-r1
+    container_name: ssh-postgres
+    hostname: ssh
+    environment:
+      - PUBLIC_KEY_FILE=/root/.ssh/id_ed25519.pub
+      - USER_NAME=metabase
+    volumes:
+      - $PWD/ssh/sshd_config:/config/ssh_host_keys/sshd_config
+      - $PWD/ssh/keys/:/root/.ssh/
+    networks: 
+      - metanet1-postgres
+    ports:
+      - 2222:2222
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 50M
+        reservations:
+          cpus: '0.05'
+          memory: 10M
+networks: 
+  metanet1-postgres:
+    driver: bridge
